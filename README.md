@@ -1,10 +1,19 @@
-# cholog-logger
-
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![JitPack](https://jitpack.io/v/MurHyun2/cholog-logger.svg)](https://jitpack.io/#MurHyun2/cholog-logger)
 
-Spring Boot 애플리케이션을 위한 중앙 집중형 로깅 SDK입니다.  
-HTTP 요청/응답, 애플리케이션 로그, 예외 등을 자동으로 캡처하여 중앙 로그 서버(ELK 등)로 전송합니다.
+<h1 align="middle">cholog-logger</h1>
+
+<h3 align="middle">귀찮은 로깅 시스템, 직접 구현하지 마세요!</h3>
+
+<br/>
+
+---
+
+## 소개
+
+로그 수집, 예외 처리, ELK 연동까지 번거로운 중앙 집중형 로깅 구축을  
+**cholog-logger**가 **자동**으로 해결해드립니다.
+> **Spring Boot 애플리케이션을 위한 중앙 집중형 로깅 SDK**
 
 ---
 
