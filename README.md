@@ -79,7 +79,6 @@ public class Example {
 - [문제 해결](docs/Troubleshooting.md)
 - [FAQ](docs/FAQ.md)
 - [샘플 설정 전체 보기](docs/application.sample.yml)
-- [Wiki 전체 문서](https://github.com/MurHyun2/cholog-logger/wiki)
 - [CHANGELOG](CHANGELOG.md)
 
 ---
