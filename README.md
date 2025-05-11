@@ -1,6 +1,5 @@
 # cholog-logger
 
-[![Build Status](https://github.com/MurHyun2/cholog-logger/actions/workflows/gradle.yml/badge.svg)](https://github.com/MurHyun2/cholog-logger/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![JitPack](https://jitpack.io/v/MurHyun2/cholog-logger.svg)](https://jitpack.io/#MurHyun2/cholog-logger)
 
