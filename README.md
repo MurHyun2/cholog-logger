@@ -20,21 +20,33 @@ HTTP 요청/응답, 애플리케이션 로그, 예외 등을 자동으로 캡처
 
 ## 설치 방법
 
-### Gradle 사용 시
+**JitPack에서 최신 버전 태그를 복사해서 사용하세요.** (https://jitpack.io/#MurHyun2/cholog-logger)
 
+### Gradle
 ```gradle
+repositories {
+    mavenCentral()
+    maven { url 'https://jitpack.io' }
+}
+
 dependencies {
-    implementation 'com.github.MurHyun2:cholog-logger:v1.0.0'
+    implementation 'com.github.MurHyun2:cholog-logger:<version>'
 }
 ```
 
-### Maven 사용 시
-
+### Maven
 ```xml
+<repositories>
+    <repository>
+        <id>jitpack.io</id>
+        <url>https://jitpack.io</url>
+    </repository>
+</repositories>
+
 <dependency>
   <groupId>com.github.MurHyun2</groupId>
   <artifactId>cholog-logger</artifactId>
-  <version>v1.0.0</version>
+  <version><!-- JitPack에서 최신 태그 복사 --></version>
 </dependency>
 ```
 
@@ -79,7 +91,6 @@ public class Example {
 - [문제 해결](docs/Troubleshooting.md)
 - [FAQ](docs/FAQ.md)
 - [샘플 설정 전체 보기](docs/application.sample.yml)
-- [Wiki 전체 문서](https://github.com/MurHyun2/cholog-logger/wiki)
 - [CHANGELOG](CHANGELOG.md)
 
 ---
