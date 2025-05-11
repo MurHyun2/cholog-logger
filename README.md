@@ -7,15 +7,11 @@
 
 <br/>
 
----
-
 ## 소개
 
 로그 수집, 예외 처리, ELK 연동까지 번거로운 중앙 집중형 로깅 구축을  
 **cholog-logger**가 **자동**으로 해결해드립니다.
 > **Spring Boot 애플리케이션을 위한 중앙 집중형 로깅 SDK**
-
----
 
 ## 주요 특징
 
@@ -24,8 +20,6 @@
 - 민감 정보 자동 필터링, GZIP 압축 지원
 - Spring Boot 자동 설정(AutoConfiguration)
 - 디스크 큐, JMX 상태 모니터링 등 고급 기능
-
----
 
 ## 설치 방법
 
@@ -59,8 +53,6 @@ dependencies {
 </dependency>
 ```
 
----
-
 ## 빠른 시작 및 설정 예시
 
 `application.yml` 또는 `application.properties`에 아래 항목을 반드시 지정해야 합니다.
@@ -73,8 +65,6 @@ cholog:
     service-name: my-awesome-service              # 서비스 논리 이름 (필수)
     environment: production                       # 실행 환경 (예: production, development)
 ```
-
----
 
 ## 간단한 사용 예제
 
@@ -90,8 +80,6 @@ public class Example {
 }
 ```
 
----
-
 ## 문서
 
 - [설정 옵션 전체 보기](docs/Configuration.md)
@@ -102,15 +90,11 @@ public class Example {
 - [샘플 설정 전체 보기](docs/application.sample.yml)
 - [CHANGELOG](CHANGELOG.md)
 
----
-
 ## 기여 및 문의
 
 - 이슈/PR 환영: [Issues](https://github.com/MurHyun2/cholog-logger/issues)
 - Author: [Daehyun Lee (MurHyun2)](https://github.com/MurHyun2)
 - Email: eddy152264@gmail.com
-
----
 
 ## 라이선스
 
