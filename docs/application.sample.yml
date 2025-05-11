@@ -1,0 +1,14 @@
+# cholog-logger 샘플 설정 (application.sample.yml)
+
+cholog:
+  logger:
+    url: http://your-log-server.com/api/logs   # 중앙 로그 서버 URL (필수)
+    api-key: your-api-key                      # 서비스 식별용 API 키 (필수)
+    service-name: my-awesome-service           # 서비스 논리 이름 (필수)
+    environment: production                    # 실행 환경 (예: production, development)
+    log-level: INFO                            # 전송할 최소 로그 레벨
+    batch-size: 100                            # 배치 전송 크기
+    disk-queue-enabled: true                   # 디스크 큐 활성화
+    sensitive-patterns:
+      - password
+      - card 
