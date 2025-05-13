@@ -148,15 +148,16 @@ public class LogAutoConfiguration {
      * 이 필터는 {@code cholog.logger.request-response-logging=true} (기본값)일 때 활성화됩니다.
      * 서블릿 기반 웹 애플리케이션 환경에서만 생성됩니다.
      *
+     * @param properties 로그 서버 접속 설정 (자동 주입)
      * @return 생성된 {@link RequestResponseLoggingFilter} 인스턴스
      */
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     @ConditionalOnProperty(prefix = "cholog.logger", name = "request-response-logging", havingValue = "true", matchIfMissing = true)
-    public RequestResponseLoggingFilter requestResponseLoggingFilter() {
+    public RequestResponseLoggingFilter requestResponseLoggingFilter(LogServerProperties properties) {
         log.info("CHO:LOG - Initializing RequestResponseLoggingFilter bean for detailed request/response logging.");
-        return new RequestResponseLoggingFilter();
+        return new RequestResponseLoggingFilter(properties);
     }
     
     /**
