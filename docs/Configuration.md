@@ -1,6 +1,6 @@
 # 설정 옵션 (Configuration)
 
-**cholog-logger v1.0.1** 기준 전체 설정 옵션 안내입니다.
+**cholog-logger v1.0.2** 기준 전체 설정 옵션 안내입니다.
 
 ---
 
@@ -132,8 +132,22 @@ cholog:
     expose-metrics-via-jmx: true
     cors-enabled: false
     sensitive-patterns:
-      - password
-      - card
+      # 개인정보 필터링
+      - mdcContext.request_param_password
+      - mdcContext.request_param_ssn
+      - mdcContext.request_param_cardNumber
+      - mdcContext.request_param_phoneNumber
+      - mdcContext.request_param_email
+      
+      # 인증정보 필터링
+      - headers.authorization
+      - headers.cookie
+      - mdcContext.request_header_x-api-key
+      
+      # 시스템 정보 필터링
+      - performanceMetrics.cpuUsage
+      - performanceMetrics.memoryUsage
+      - timestamp
     sensitive-value-replacement: "***"
     max-retries: 3
     retry-delay: 1000
@@ -165,7 +179,31 @@ cholog:
 > **민감 정보 필터링**
 > - `sensitive-patterns`에 지정된 키워드는 로그에서 자동으로 마스킹됩니다.
 > - `sensitive-value-replacement`로 마스킹 문자열을 변경할 수 있습니다(기본값: "***").
-> - v1.0.1부터 모든 민감정보 마스킹에 통일된 설정값이 적용됩니다.
+> - v1.0.2부터 모든 필터에서 민감정보 필터링이 일관되게 적용됩니다.
+> - **중요:** v1.0.2부터 `RequestTimingFilter`에서도 민감 파라미터 필터링이 적용됩니다.
+> - **주의:** 부분 문자열 매칭 사용 - `card`를 지정하면 `cardHolder`, `discardReason` 등 'card'가 포함된 모든 필드가 필터링될 수 있습니다.
+> - **권장사항:** 의도하지 않은 필터링을 방지하려면 경로를 명확하게 지정하세요. 예: `mdcContext.request_param_age`
+> - **기본 필터링:** 다음 헤더와 파라미터는 설정과 무관하게 항상 필터링됩니다:
+>   - 헤더: authorization, auth, cookie, jwt, token, password, secret, credential, key, x-api-key, api-key, apikey, access, private
+>   - 파라미터: password, pwd, secret, token, auth, key, apikey, api-key, credential, card, credit, cvv, cvc, pin, ssn, social, sin, tax, fiscal, passport, license, national, identity, private
+> - 경로를 명확하게 지정하여 의도하지 않은 필터링을 방지하세요. 예:
+>   ```yaml
+>   sensitive-patterns:
+>     # 인증 및 개인정보 필터링
+>     - headers.authorization              # 인증 헤더 필터링
+>     - headers.cookie                     # 쿠키 필터링
+>     - mdcContext.request_param_password  # 비밀번호 파라미터
+>     - mdcContext.request_param_ssn       # 주민번호 파라미터  
+>     - mdcContext.request_param_phone     # 전화번호 파라미터
+>     
+>     # 성능 및 시스템 정보 필터링
+>     - performanceMetrics.cpuUsage        # CPU 사용량 숨김
+>     - performanceMetrics.memoryUsage     # 메모리 사용량 숨김
+>     
+>     # 민감한 응답 데이터 필터링
+>     - response_body                      # 전체 응답 본문 필터링(필요시)
+>   ```
+> - 특정 타입의 모든 필드를 필터링하려면 접두어 사용: `request_param_` 또는 `request_header_`
 
 > **CORS 설정**
 > - `cors-enabled: true`로 설정 시 모든 오리진/헤더/메소드 허용(CORS 보안 주의)

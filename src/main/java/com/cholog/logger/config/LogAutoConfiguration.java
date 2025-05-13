@@ -115,14 +115,15 @@ public class LogAutoConfiguration {
      * MDC에 저장된 정보는 후속 로그 이벤트에 자동으로 포함됩니다.
      * 서블릿 기반 웹 애플리케이션 환경 ({@link ConditionalOnWebApplication})에서만 생성됩니다.
      *
+     * @param properties 로그 서버 접속 설정 (자동 주입)
      * @return 생성된 {@link RequestTimingFilter} 인스턴스
      */
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
-    public RequestTimingFilter requestTimingFilter() {
+    public RequestTimingFilter requestTimingFilter(LogServerProperties properties) {
         log.info("CHO:LOG - Initializing RequestTimingFilter bean for Servlet environment.");
-        return new RequestTimingFilter();
+        return new RequestTimingFilter(properties);
     }
     
     /**

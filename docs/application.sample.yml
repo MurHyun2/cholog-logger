@@ -9,6 +9,18 @@ cholog:
     log-level: INFO                            # 전송할 최소 로그 레벨
     batch-size: 100                            # 배치 전송 크기
     disk-queue-enabled: true                   # 디스크 큐 활성화
-    sensitive-patterns:
-      - password
-      - card 
+    sensitive-patterns:                        # 민감 정보 필터링 패턴 목록
+      # 개인정보 필터링 (경로 정확히 지정 - v1.0.2부터 권장)
+      - mdcContext.request_param_password      # 비밀번호 파라미터
+      - mdcContext.request_param_ssn           # 주민번호 파라미터
+      - mdcContext.request_param_phoneNumber   # 전화번호 파라미터
+      - mdcContext.request_param_age           # 나이 파라미터
+      
+      # 인증 정보 필터링
+      - headers.authorization                  # 인증 헤더
+      - headers.cookie                         # 쿠키 정보
+      
+      # 민감한 시스템 정보 필터링
+      - performanceMetrics.cpuUsage            # CPU 사용량
+      - performanceMetrics.memoryUsage         # 메모리 사용량
+    sensitive-value-replacement: "******"      # 필터링된 값의 대체 문자열 (v1.0.2부터 모든 필터에 일관되게 적용) 

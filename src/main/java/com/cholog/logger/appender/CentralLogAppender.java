@@ -93,6 +93,9 @@ public class CentralLogAppender extends AppenderBase<ILoggingEvent> {
     @Value("${server.port:8080}") // Spring Boot 표준 포트 설정 사용
     private String port;
 
+    // 시퀀스 번호 관리를 위한 카운터
+    private long sequenceCounter;
+
     /**
      * 생성자-기반 의존성 주입.
      * Spring Boot가 자동으로 필요한 빈들을 주입합니다.
@@ -250,6 +253,8 @@ public class CentralLogAppender extends AppenderBase<ILoggingEvent> {
             logData.put("logger", event.getLoggerName());
             logData.put("message", event.getFormattedMessage()); // 포맷팅된 메시지 사용
             logData.put("thread", event.getThreadName());
+            // 시퀀스 번호 추가 (설정이 활성화된 경우)
+            logData.put("sequence",1);
 
             // 5. 애플리케이션 정보 추가
             String serviceName = properties.getServiceName();

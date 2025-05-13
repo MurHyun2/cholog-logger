@@ -21,12 +21,12 @@
 - Spring Boot 자동 설정(AutoConfiguration)
 - 디스크 큐, JMX 상태 모니터링 등 고급 기능
 
-## 최근 업데이트 (v1.0.1)
+## 최근 업데이트 (v1.0.2)
 
-- 민감정보 필터링 시스템 개선 - 모든 컴포넌트에서 통일된 마스킹 문자열 사용
-- 코드 최적화 - 중복 코드 제거 및 모듈화로 성능 향상
-- 디스크 큐 관리 기능 강화 - 동시성 제어 및 오류 복구 개선
-- 설정 옵션 변경 - `compression-enabled`와 `compression-threshold`가 `compress-logs`로 통합
+- 민감 파라미터 필터링 강화 - 요청 파라미터에 대한 자동 마스킹 개선
+- 내부 필터링 로직 통합 - `RequestTimingFilter`에서도 민감 정보 필터링 적용
+- 사용자 설정 마스킹 문자열(`sensitiveValueReplacement`) 지원 확대
+- `password`, `ssn`, `token` 등의 민감 파라미터 자동 마스킹 처리 개선
 
 자세한 내용은 [CHANGELOG](CHANGELOG.md)를 참조하세요.
 
