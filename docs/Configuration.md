@@ -1,6 +1,6 @@
 # 설정 옵션 (Configuration)
 
-**cholog-logger v1.0.0** 기준 전체 설정 옵션 안내입니다.
+**cholog-logger v1.0.1** 기준 전체 설정 옵션 안내입니다.
 
 ---
 
@@ -52,12 +52,12 @@
 | **disk-queue-path** | 디스크 큐 저장 경로 | ./log-queue | ./log-queue |
 | **disk-resend-interval** | 디스크 큐 재전송 간격(ms) | 60000 | 60000 |
 | **max-disk-queue-size-mb** | 디스크 큐 최대 크기(MB) | 1024 | 1024 |
-| **compression-enabled** | 로그 압축 활성화 여부 | false | true |
-| **compression-threshold** | 압축 시작 최소 크기(바이트) | 1024 | 1024 |
+| **compress-logs** | 로그 압축 활성화 여부 | false | true |
 
 > **주의:**<br/>
 > - 운영 환경에서는 `disk-queue-path`를 반드시 영구적이고 쓰기 가능한 경로로 지정하세요.<br/>
-> - `compression-enabled: true` 사용 시 Logstash 입력에 `decompress_request => true` 옵션 필요!
+> - `compress-logs: true` 사용 시 Logstash 입력에 `decompress_request => true` 옵션 필요!
+> - 기존 `compression-enabled`와 `compression-threshold` 옵션은 v1.0.1부터 `compress-logs`로 통합되었습니다.
 
 ---
 
@@ -126,8 +126,7 @@ cholog:
     disk-queue-path: ./log-queue
     disk-resend-interval: 60000
     max-disk-queue-size-mb: 1024
-    compression-enabled: false
-    compression-threshold: 1024
+    compress-logs: false
     metrics-enabled: true
     metrics-collection-interval: 60000
     expose-metrics-via-jmx: true
@@ -158,13 +157,15 @@ cholog:
 ## 8. 참고/실전 팁
 
 > **로그 압축 관련 주의사항**
-> - `compression-enabled: true`를 사용할 경우, Logstash 입력에 반드시 `decompress_request => true` 옵션을 추가해야 합니다. 그렇지 않으면 압축된 로그 데이터가 제대로 처리되지 않습니다.
+> - `compress-logs: true`를 사용할 경우, Logstash 입력에 반드시 `decompress_request => true` 옵션을 추가해야 합니다. 그렇지 않으면 압축된 로그 데이터가 제대로 처리되지 않습니다.
 
 > **디스크 큐 경로**
 > - 운영 환경에서는 기본값(`./log-queue`) 대신 영구적이고 쓰기 가능한 경로로 지정하세요.
 
 > **민감 정보 필터링**
 > - `sensitive-patterns`에 지정된 키워드는 로그에서 자동으로 마스킹됩니다.
+> - `sensitive-value-replacement`로 마스킹 문자열을 변경할 수 있습니다(기본값: "***").
+> - v1.0.1부터 모든 민감정보 마스킹에 통일된 설정값이 적용됩니다.
 
 > **CORS 설정**
 > - `cors-enabled: true`로 설정 시 모든 오리진/헤더/메소드 허용(CORS 보안 주의)

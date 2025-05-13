@@ -21,6 +21,15 @@
 - Spring Boot 자동 설정(AutoConfiguration)
 - 디스크 큐, JMX 상태 모니터링 등 고급 기능
 
+## 최근 업데이트 (v1.0.1)
+
+- 민감정보 필터링 시스템 개선 - 모든 컴포넌트에서 통일된 마스킹 문자열 사용
+- 코드 최적화 - 중복 코드 제거 및 모듈화로 성능 향상
+- 디스크 큐 관리 기능 강화 - 동시성 제어 및 오류 복구 개선
+- 설정 옵션 변경 - `compression-enabled`와 `compression-threshold`가 `compress-logs`로 통합
+
+자세한 내용은 [CHANGELOG](CHANGELOG.md)를 참조하세요.
+
 ## 설치 방법
 
 **JitPack에서 최신 버전 태그를 복사해서 사용하세요.** (https://jitpack.io/#MurHyun2/cholog-logger)
@@ -64,6 +73,8 @@ cholog:
     api-key: your-api-key                         # 서비스 식별용 API 키 (필수)
     service-name: my-awesome-service              # 서비스 논리 이름 (필수)
     environment: production                       # 실행 환경 (예: production, development)
+    sensitive-value-replacement: "******"         # 민감 정보 마스킹 문자열 (선택, 기본값: ***)
+    compress-logs: false                          # 로그 압축 사용 여부 (선택, 기본값: false)
 ```
 
 ## 간단한 사용 예제

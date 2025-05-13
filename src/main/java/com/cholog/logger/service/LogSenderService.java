@@ -4,6 +4,7 @@ import com.cholog.logger.appender.CentralLogAppender;
 import com.cholog.logger.config.LogServerProperties;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.http.HttpEntity;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -45,6 +46,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -110,9 +112,15 @@ public class LogSenderService implements DisposableBean {
     private long currentBackoffDelay;
     private final Random random = new Random();
 
+    // JMX 메트릭 관리 객체
+    private LogSenderMetrics metrics;
+    
     // HTTP 요청 시 사용할 타임아웃 값 (밀리초)
     private static final int CONNECT_TIMEOUT = 5000; // 연결 타임아웃 (5초)
     private static final int SOCKET_TIMEOUT = 10000; // 데이터 수신 타임아웃 (10초)
+
+    // 디스크 큐 작업에 대한 동기화 객체 추가
+    private final Object diskQueueLock = new Object();
 
     /**
      * 생성자-기반 의존성 주입.
@@ -237,7 +245,7 @@ public class LogSenderService implements DisposableBean {
      * {@link CentralLogAppender}로부터 호출되어 개별 로그 메시지(JSON 문자열)를 내부 메모리 큐({@link #logQueue})에 추가합니다.
      * 로그 메시지는 추가 전에 민감 정보 필터링을 거칩니다 ({@link #filterSensitiveValues(String)}).
      * 서비스가 비활성 상태이거나(애플리케이션 종료 중), 로그 메시지가 null 또는 비어있거나, 로그 서버 URL이 설정되지 않은 경우 로그는 추가되지 않습니다.
-     * 메모리 큐가 가득 찬 경우, 로그는 유실되고 경고 메시지가 기록됩니다.
+     * 메모리 큐가 가득 찬 경우, 디스크 큐가 활성화되어 있으면 디스크에 저장하고, 그렇지 않으면 로그가 유실됩니다.
      *
      * @param jsonLog 전송할 개별 로그 이벤트의 JSON 문자열. null이거나 비어있으면 무시됩니다.
      */
@@ -262,7 +270,23 @@ public class LogSenderService implements DisposableBean {
 
         boolean added = logQueue.offer(filteredLog); // Non-blocking 추가 시도
         if (!added) {
-            logger.warn("로그 큐가 가득 찼습니다 (용량: {}). 로그 메시지가 유실됩니다.", properties.getQueueCapacity());
+            if (effectiveDiskQueueEnabled && diskQueueDir != null) {
+                try {
+                    // 큐가 가득 찬 경우 직접 디스크에 저장
+                    logger.warn("로그 큐가 가득 찼습니다 (용량: {}). 로그를 디스크에 직접 저장합니다.", properties.getQueueCapacity());
+                    saveBatchToDisk("[" + filteredLog + "]");
+                    
+                    // 메트릭 업데이트
+                    if (metrics != null) {
+                        metrics.incrementFailedLogs(1);
+                    }
+                } catch (Exception e) {
+                    logger.error("큐 가득 참 시 로그 디스크 저장 실패: {}", e.getMessage(), e);
+                }
+            } else {
+                logger.warn("로그 큐가 가득 찼고 디스크 큐가 비활성화되어 있어 로그 메시지가 유실됩니다. (큐 용량: {})", 
+                    properties.getQueueCapacity());
+            }
         } else {
             if (logger.isTraceEnabled()) { // Trace 레벨 로그 활성화 시 큐 추가 로깅
                 logger.trace("로그가 큐에 추가되었습니다. 현재 큐 크기: {}", logQueue.size());
@@ -284,7 +308,11 @@ public class LogSenderService implements DisposableBean {
 
         try {
             Map<String, Object> logMap = objectMapper.readValue(jsonLog, new TypeReference<Map<String, Object>>() {});
-            boolean isFiltered = filterSensitiveValuesRecursive(logMap, "");
+            // 필터링을 위한 컨텍스트 객체 생성 (필터링 상태 추적)
+            FilterContext context = new FilterContext(sensitivePatterns, properties.getSensitiveValueReplacement());
+            
+            // 실제 필터링 수행
+            boolean isFiltered = filterSensitiveValuesRecursive(logMap, "", context);
             
             if (isFiltered) {
                 logMap.put("filtered", true);
@@ -299,7 +327,28 @@ public class LogSenderService implements DisposableBean {
         }
     }
 
-    private boolean filterSensitiveValuesRecursive(Map<String, Object> map, String parentPath) {
+    /**
+     * 필터링 상태를 추적하기 위한 컨텍스트 클래스
+     */
+    private static class FilterContext {
+        private final Pattern[] patterns;
+        private final String replacement;
+        
+        public FilterContext(Pattern[] patterns, String replacement) {
+            this.patterns = patterns;
+            this.replacement = replacement;
+        }
+        
+        public Pattern[] getPatterns() {
+            return patterns;
+        }
+        
+        public String getReplacement() {
+            return replacement;
+        }
+    }
+
+    private boolean filterSensitiveValuesRecursive(Map<String, Object> map, String parentPath, FilterContext context) {
         boolean isFiltered = false;
         
         for (Map.Entry<String, Object> entry : map.entrySet()) {
@@ -308,43 +357,75 @@ public class LogSenderService implements DisposableBean {
             String currentPath = parentPath.isEmpty() ? key : parentPath + "." + key;
 
             // 키가 민감한 패턴과 일치하는지 확인 (대소문자 구분 없이)
-            boolean isSensitive = false;
-            for (Pattern pattern : sensitivePatterns) {
-                if (pattern.matcher(currentPath.toLowerCase()).find()) {
-                    isSensitive = true;
-                    break;
-                }
-            }
+            boolean isSensitive = isSensitivePath(currentPath, context.getPatterns());
 
             if (isSensitive && value != null) {
                 // 민감한 값은 대체 문자열로 변경
-                entry.setValue(properties.getSensitiveValueReplacement());
+                entry.setValue(context.getReplacement());
                 isFiltered = true;
             } else if (value instanceof Map) {
                 // Map인 경우 재귀적으로 처리
                 @SuppressWarnings("unchecked")
                 Map<String, Object> nestedMap = (Map<String, Object>) value;
-                if (filterSensitiveValuesRecursive(nestedMap, currentPath)) {
+                if (filterSensitiveValuesRecursive(nestedMap, currentPath, context)) {
                     isFiltered = true;
                 }
             } else if (value instanceof List) {
                 // List인 경우 각 요소를 재귀적으로 처리
                 @SuppressWarnings("unchecked")
                 List<Object> list = (List<Object>) value;
-                for (int i = 0; i < list.size(); i++) {
-                    Object item = list.get(i);
-                    if (item instanceof Map) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> nestedMap = (Map<String, Object>) item;
-                        if (filterSensitiveValuesRecursive(nestedMap, currentPath + "[" + i + "]")) {
-                            isFiltered = true;
-                        }
-                    }
+                if (processListItems(list, currentPath, context)) {
+                    isFiltered = true;
                 }
             }
         }
         
         return isFiltered;
+    }
+    
+    /**
+     * 리스트 항목을 처리하여 민감 정보 필터링
+     */
+    private boolean processListItems(List<Object> list, String parentPath, FilterContext context) {
+        boolean isFiltered = false;
+        
+        for (int i = 0; i < list.size(); i++) {
+            Object item = list.get(i);
+            String itemPath = parentPath + "[" + i + "]";
+            
+            if (item instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> nestedMap = (Map<String, Object>) item;
+                if (filterSensitiveValuesRecursive(nestedMap, itemPath, context)) {
+                    isFiltered = true;
+                }
+            } else if (item instanceof List) {
+                @SuppressWarnings("unchecked")
+                List<Object> nestedList = (List<Object>) item;
+                if (processListItems(nestedList, itemPath, context)) {
+                    isFiltered = true;
+                }
+            }
+        }
+        
+        return isFiltered;
+    }
+    
+    /**
+     * 경로가 민감한지 확인
+     */
+    private boolean isSensitivePath(String path, Pattern[] patterns) {
+        if (path == null || patterns == null) {
+            return false;
+        }
+        
+        String lowerCasePath = path.toLowerCase();
+        for (Pattern pattern : patterns) {
+            if (pattern.matcher(lowerCasePath).find()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -409,10 +490,14 @@ public class LogSenderService implements DisposableBean {
             return true; // 빈 배치는 성공으로 처리
         }
 
-        // 배치를 JSON 배열 문자열로 변환
+        // 로그 배치를 JSON 배열 문자열로 변환
         String jsonBatch = convertBatchToJsonString(batch);
         if (jsonBatch == null) {
-            return false; // 변환 실패
+            // 배치 변환 실패 기록
+            if (metrics != null) {
+                metrics.incrementFailedLogs(batch.size());
+            }
+            return false;
         }
 
         // 최대 재시도 횟수만큼 시도
@@ -453,6 +538,10 @@ public class LogSenderService implements DisposableBean {
                         logger.info("재시도 성공 ({}/{}): 로그 배치 전송 완료", retry, maxRetries);
                     }
                     
+                    // 성공 시 메트릭 업데이트
+                    if (metrics != null) {
+                        metrics.incrementProcessedLogs(batch.size());
+                    }
                     return true;
                 }
             } catch (Exception e) {
@@ -530,6 +619,90 @@ public class LogSenderService implements DisposableBean {
     }
 
     /**
+     * HTTP 요청에 사용할 엔티티를 생성합니다. 압축 설정에 따라 다른 방식으로 처리합니다.
+     *
+     * @param jsonData JSON 데이터 문자열
+     * @return 요청에 사용할 HttpEntity
+     * @throws IOException 압축 중 오류 발생 시
+     */
+    private HttpEntity createRequestEntity(String jsonData) throws IOException {
+        if (properties.isCompressLogs()) {
+            // 압축 처리 로직
+            byte[] originalData = jsonData.getBytes(StandardCharsets.UTF_8);
+            byte[] compressedJson = compressData(originalData);
+            
+            if (logger.isDebugEnabled()) {
+                logger.debug("로그 압축 적용: 원본 크기={}바이트, 압축 후 크기={}바이트, 압축률={}%", 
+                    originalData.length, compressedJson.length, 
+                    Math.round((1 - (double)compressedJson.length / originalData.length) * 100));
+            }
+            
+            // 압축된 데이터로 엔티티 생성
+            ByteArrayEntity entity = new ByteArrayEntity(compressedJson);
+            entity.setContentType("application/json");
+            return entity;
+        } else {
+            // 압축 없이 일반 텍스트로 전송
+            StringEntity entity = new StringEntity(jsonData, StandardCharsets.UTF_8);
+            entity.setContentType("application/json");
+            
+            if (logger.isDebugEnabled()) {
+                logger.debug("로그 압축 미적용: 전송 크기={}바이트", jsonData.getBytes(StandardCharsets.UTF_8).length);
+            }
+            
+            return entity;
+        }
+    }
+
+    /**
+     * 요청 헤더에 API 키를 추가합니다.
+     * 
+     * @param post HTTP POST 요청 객체
+     */
+    private void addApiKeyHeaders(HttpPost post) {
+        String apiKey = properties.getApiKey();
+        if (apiKey != null && !apiKey.isEmpty()) {
+            post.setHeader("X-API-Key", apiKey);
+        }
+    }
+
+    /**
+     * 지수 백오프 지연 시간을 초기화합니다.
+     */
+    private void resetBackoffDelay() {
+        if (properties.isUseExponentialBackoff()) {
+            currentBackoffDelay = properties.getInitialBackoffDelay();
+        }
+    }
+    
+    /**
+     * 재시도 횟수에 따른 지연 시간을 계산합니다.
+     * 
+     * @param retry 현재 재시도 횟수
+     * @return 지연 시간 (밀리초)
+     */
+    private long calculateBackoffDelay(int retry) {
+        if (properties.isUseExponentialBackoff()) {
+            long jitter = random.nextInt(1000) - 500; // ±500ms 랜덤성
+            return currentBackoffDelay + jitter;
+        } else {
+            return properties.getRetryDelay();
+        }
+    }
+    
+    /**
+     * 지수 백오프 지연 시간을 업데이트합니다.
+     */
+    private void updateBackoffDelay() {
+        if (properties.isUseExponentialBackoff()) {
+            currentBackoffDelay = Math.min(
+                currentBackoffDelay * 2,
+                properties.getMaxBackoffDelay()
+            );
+        }
+    }
+
+    /**
      * HTTP 요청 실행 메소드. 로그 배치를 중앙 서버로 POST 요청을 통해 전송합니다.
      *
      * @param jsonBatch 전송할 JSON 배치 문자열 (단일 로그 또는 로그 배열)
@@ -548,35 +721,12 @@ public class LogSenderService implements DisposableBean {
         post.setHeader("Accept", "application/json");
         
         // API 키 설정이 있으면 요청 헤더에 추가
-        if (properties.getApiKey() != null && !properties.getApiKey().isEmpty()) {
-            post.setHeader("X-API-Key", properties.getApiKey());
-            post.setHeader("X-Service-Name", properties.getServiceName());
-            post.setHeader("X-Environment", properties.getEnvironment());
-            logger.debug("API Key 헤더가 요청에 추가되었습니다.");
-        } else {
-            logger.warn("API Key가 설정되지 않았습니다. 서버에서 인증 오류가 발생할 수 있습니다.");
-        }
+        addApiKeyHeaders(post);
 
-        // 압축 활성화 여부에 따라 다르게 처리
+        // 요청 엔티티 생성 및 설정
+        post.setEntity(createRequestEntity(jsonBatch));
         if (properties.isCompressLogs()) {
-            // 압축 처리 로직
-            byte[] originalData = jsonBatch.getBytes(StandardCharsets.UTF_8);
-            byte[] compressedJson = compressData(originalData);
-            logger.debug("로그 압축 적용: 원본 크기={}바이트, 압축 후 크기={}바이트, 압축률={}%", 
-                originalData.length, compressedJson.length, 
-                Math.round((1 - (double)compressedJson.length / originalData.length) * 100));
-            
-            // 압축된 데이터로 엔티티 생성
-            ByteArrayEntity entity = new ByteArrayEntity(compressedJson);
-            entity.setContentType("application/json");
-            post.setEntity(entity);
             post.setHeader("Content-Encoding", "gzip");
-        } else {
-            // 압축 없이 일반 텍스트로 전송
-        StringEntity entity = new StringEntity(jsonBatch, StandardCharsets.UTF_8);
-        entity.setContentType("application/json");
-            post.setEntity(entity);
-            logger.debug("로그 압축 미적용: 전송 크기={}바이트", jsonBatch.getBytes(StandardCharsets.UTF_8).length);
         }
 
         // 타임아웃 설정
@@ -586,8 +736,7 @@ public class LogSenderService implements DisposableBean {
                 .build();
         post.setConfig(requestConfig);
 
-        logger.debug("로그 전송 시도: URL={}, Headers={}", properties.getUrl(), 
-                Arrays.toString(post.getAllHeaders()));
+        logger.debug("로그 전송 시도: URL={}", properties.getUrl());
                 
         try (CloseableHttpResponse response = httpClient.execute(post)) {
             int statusCode = response.getStatusLine().getStatusCode();
@@ -609,7 +758,6 @@ public class LogSenderService implements DisposableBean {
                     }
                 }
                 
-                // 응답 본문이 있으면 로깅 (디버깅 목적)
                 try {
                     if (response.getEntity() != null) {
                         String responseBody = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
@@ -641,42 +789,160 @@ public class LogSenderService implements DisposableBean {
             return;
         }
 
+        // 디스크 큐 작업을 동기화하여 경합 상태 방지
+        synchronized (diskQueueLock) {
+            // 디스크 용량 관리 수행
+            manageDiskQueueSize();
+            
+            // 고유한 파일명으로 저장
+            saveJsonBatchToFile(jsonBatch, null);
+        }
+    }
+
+    /**
+     * 디스크 큐 파일 정리 및 최대 용량 관리를 담당합니다.
+     * 주기적으로 호출하여 디스크 용량을 모니터링하고 필요 시 오래된 파일을 정리합니다.
+     */
+    private void manageDiskQueueSize() {
+        if (!effectiveDiskQueueEnabled || diskQueueDir == null) {
+            return;
+        }
+        
+        // 이미 동기화된 컨텍스트에서 호출된다고 가정
         try {
-            // 디스크 큐 디렉토리 크기 확인 및 필요시 정리
-                    long currentSize = calculateDirectorySize(diskQueueDir);
+            // 디스크 큐 디렉토리 크기 확인
+            long currentSize = calculateDirectorySize(diskQueueDir);
             long maxSizeBytes = properties.getMaxDiskQueueSizeBytes();
             
             // 최대 크기가 지정된 경우(0보다 큰 경우) 디렉토리 크기 체크
             if (maxSizeBytes > 0 && currentSize > maxSizeBytes) {
                 cleanupOldestFiles(currentSize, maxSizeBytes);
             }
+        } catch (IOException e) {
+            logger.error("디스크 큐 크기 관리 중 오류 발생: {}", e.getMessage());
+        }
+    }
 
-            // 고유한 파일명 생성 (타임스탬프-UUID.logbatch)
-            String fileName = System.currentTimeMillis() + "-" + UUID.randomUUID() + DISK_QUEUE_FILE_SUFFIX;
+    /**
+     * 디스크 큐에 로그 배치를 저장합니다.
+     * 동기화된 컨텍스트에서 호출되어야 합니다.
+     * 
+     * @param jsonBatch 저장할 JSON 배치
+     * @param fileName 파일 이름 (null인 경우 자동 생성)
+     * @return 저장 성공 여부
+     */
+    private boolean saveJsonBatchToFile(String jsonBatch, String fileName) {
+        try {
+            if (fileName == null) {
+                fileName = System.currentTimeMillis() + "-" + UUID.randomUUID() + DISK_QUEUE_FILE_SUFFIX;
+            }
+            
             Path filePath = diskQueueDir.resolve(fileName);
             
-            // 파일에 JSON 배치 문자열 저장
             Files.write(
-                    filePath,
-                    jsonBatch.getBytes(StandardCharsets.UTF_8),
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.WRITE,
-                    StandardOpenOption.TRUNCATE_EXISTING
+                filePath,
+                jsonBatch.getBytes(StandardCharsets.UTF_8),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING
             );
             
-            // 디스크 저장 관련 로그 출력 여부 제어
             if (properties.isVerboseDiskQueueLogs()) {
                 logger.info("로그 배치를 디스크에 저장했습니다: {}", fileName);
             }
+            
+            // 메트릭 업데이트
+            if (metrics != null) {
+                try {
+                    int logCount = estimateLogCount(jsonBatch);
+                    if (logCount > 0) {
+                        metrics.incrementFailedLogs(logCount);
+                    }
+                } catch (Exception e) {
+                    metrics.incrementFailedLogs(1);
+                }
+            }
+            
+            return true;
         } catch (Exception e) {
-            logger.error("로그 배치를 디스크에 저장하는 중 오류 발생: {}", e.getMessage(), e);
+            logger.error("로그 배치를 디스크에 저장하는 중 오류 발생: {}", e.getMessage());
+            return false;
         }
+    }
+    
+    /**
+     * JSON 배치 문자열에서 로그 항목 수를 추정합니다.
+     * 
+     * @param jsonBatch JSON 배치 문자열
+     * @return 추정된 로그 항목 수
+     */
+    private int estimateLogCount(String jsonBatch) {
+        int logCount = 0;
+        
+        if (jsonBatch.startsWith("[") && jsonBatch.endsWith("]")) {
+            // 간단한 배열 검증
+            String trimmed = jsonBatch.trim();
+            
+            if (trimmed.length() > 2) { // "[]"보다 큰 경우
+                // JSON 배열 내의 최상위 항목 수 (배열 내부 구조 분석)
+                int bracketDepth = 0;
+                int braceDepth = 0;
+                boolean inQuote = false;
+                boolean escaped = false;
+                
+                // 첫 번째 '[' 건너뛰기
+                for (int i = 1; i < trimmed.length() - 1; i++) {
+                    char c = trimmed.charAt(i);
+                    
+                    if (escaped) {
+                        escaped = false;
+                        continue;
+                    }
+                    
+                    if (c == '\\') {
+                        escaped = true;
+                        continue;
+                    }
+                    
+                    if (c == '"' && !escaped) {
+                        inQuote = !inQuote;
+                        continue;
+                    }
+                    
+                    if (inQuote) {
+                        continue;
+                    }
+                    
+                    if (c == '[') {
+                        bracketDepth++;
+                    } else if (c == ']') {
+                        bracketDepth--;
+                    } else if (c == '{') {
+                        braceDepth++;
+                    } else if (c == '}') {
+                        braceDepth--;
+                    } else if (c == ',' && bracketDepth == 0 && braceDepth == 0) {
+                        // 최상위 배열의 요소를 구분하는 콤마
+                        logCount++;
+                    }
+                }
+                
+                // 마지막 요소도 카운트 (콤마로 끝나지 않으므로)
+                logCount++;
+            }
+        } else {
+            // 배열이 아닌 경우 단일 로그로 가정
+            logCount = 1;
+        }
+        
+        return logCount;
     }
 
     /**
      * 디스크 큐 디렉토리의 현재 총 크기를 바이트 단위로 계산합니다.
      * 디렉토리 내의 파일들의 크기 합계를 반환합니다.
      * 심볼릭 링크나 하위 디렉토리는 계산에서 제외됩니다 (depth 1).
+     * 특정 시스템 디렉토리(errors, retried 등)도 계산에서 제외합니다.
      *
      * @param directory 크기를 계산할 디렉토리 경로. null이 아니어야 합니다.
      * @return 디렉토리 내 파일들의 총 크기 (bytes).
@@ -685,9 +951,27 @@ public class LogSenderService implements DisposableBean {
     private long calculateDirectorySize(Path directory) throws IOException {
         Objects.requireNonNull(directory, "Directory path cannot be null for size calculation.");
         long size = 0;
+        
+        // 계산에서 제외할 디렉토리 이름 목록
+        final Set<String> EXCLUDED_DIRS = new HashSet<>(Arrays.asList(
+            "errors", RETRIED_FOLDER_NAME, "tmp", "temp", "backup"
+        ));
+        
         try (Stream<Path> stream = Files.list(directory)) { // depth 1, 즉 해당 디렉토리의 직속 내용만
             for (Path path : stream.collect(Collectors.toList())) {
-                if (Files.isRegularFile(path)) { // 파일인 경우에만 크기 계산
+                // 디렉토리는 크기 계산에서 제외
+                if (Files.isDirectory(path)) {
+                    String dirName = path.getFileName().toString();
+                    if (EXCLUDED_DIRS.contains(dirName)) {
+                        // 시스템 디렉토리는 건너뛰기
+                        continue;
+                    }
+                    // 다른 디렉토리도 크기 계산에서 제외
+                    continue;
+                }
+                
+                // 로그 배치 파일만 크기 계산에 포함 (.logbatch 확장자)
+                if (Files.isRegularFile(path) && path.toString().endsWith(DISK_QUEUE_FILE_SUFFIX)) {
                     try {
                         size += Files.size(path);
                     } catch (IOException e) {
@@ -703,6 +987,7 @@ public class LogSenderService implements DisposableBean {
     /**
      * 디스크 큐 디렉토리의 파일 크기가 제한을 초과할 경우,
      * 가장 오래된 로그 배치 파일부터 삭제하여 지정된 목표 크기 이하로 유지합니다.
+     * 안전한 동시성 처리를 위해 diskQueueLock으로 동기화된 컨텍스트에서만 호출되어야 합니다.
      *
      * @param currentSize 현재 디렉토리 크기 (바이트)
      * @param targetSize 정리 후 목표 크기 (바이트)
@@ -713,38 +998,76 @@ public class LogSenderService implements DisposableBean {
             return;
         }
         
-        // 최대 용량 초과 시 오래된 파일부터 정리
-        List<Path> files = Files.list(diskQueueDir)
-                .filter(p -> p.toString().endsWith(DISK_QUEUE_FILE_SUFFIX))
-                .sorted() // 이름 기준 오름차순 정렬 (타임스탬프가 파일명 앞부분이므로 오래된 파일 먼저)
+        // 동기화 블록 내에서 호출되므로 여기서는 추가 동기화를 하지 않음
+        // 파일 정렬 및 필터링을 위한 Predicate와 Comparator 정의
+        Predicate<Path> isLogBatchFile = p -> 
+            Files.isRegularFile(p) && p.toString().endsWith(DISK_QUEUE_FILE_SUFFIX);
+        
+        Comparator<Path> byCreationTime = (p1, p2) -> {
+            try {
+                long time1 = Files.getLastModifiedTime(p1).toMillis();
+                long time2 = Files.getLastModifiedTime(p2).toMillis();
+                return Long.compare(time1, time2);
+            } catch (IOException e) {
+                logger.warn("파일 수정 시간 비교 중 오류: {}", e.getMessage());
+                return 0; // 비교 불가 시 동등 처리
+            }
+        };
+        
+        // 파일 목록 가져오기 - 오래된 파일 우선 정렬
+        List<Path> files;
+        try (Stream<Path> fileStream = Files.list(diskQueueDir)) {
+            files = fileStream
+                .filter(isLogBatchFile)
+                .sorted(byCreationTime)
                 .collect(Collectors.toList());
-            
+        }
+        
+        // 목표: 현재 크기 - 목표 크기 만큼의 공간 확보
         long sizeToFree = currentSize - targetSize;
         long freedSize = 0;
         int deletedCount = 0;
+        int failedCount = 0;
         
+        // 안전하게 파일 삭제 진행
         for (Path file : files) {
             if (freedSize >= sizeToFree) {
                 break; // 목표 크기에 도달하면 중단
             }
             
             try {
-                long fileSize = Files.size(file);
-                Files.delete(file);
-                freedSize += fileSize;
-                deletedCount++;
-                logger.info("디스크 큐 용량 확보를 위해 오래된 로그 파일 삭제: {} ({} 바이트)", 
-                    file.getFileName(), fileSize);
+                // 파일 크기 읽기 및 삭제 시도를 원자적 작업으로 처리
+                AtomicLong fileSize = new AtomicLong(0);
+                
+                // 파일 크기 먼저 확인 (삭제 전)
+                if (Files.exists(file) && Files.isRegularFile(file)) {
+                    fileSize.set(Files.size(file));
+                }
+                
+                // 삭제 시도
+                if (fileSize.get() > 0 && Files.deleteIfExists(file)) {
+                    freedSize += fileSize.get();
+                    deletedCount++;
+                    if (properties.isVerboseDiskQueueLogs()) {
+                        logger.info("디스크 큐 용량 확보를 위해 오래된 로그 파일 삭제: {} ({} 바이트)", 
+                            file.getFileName(), fileSize.get());
+                    }
+                }
             } catch (IOException e) {
-                logger.warn("오래된 로그 파일 삭제 중 오류 발생: {}", e.getMessage());
+                logger.warn("오래된 로그 파일 삭제 중 오류 발생: {} - {}", file.getFileName(), e.getMessage());
+                failedCount++;
                 // 한 파일 삭제 실패해도 계속 진행
             }
         }
         
-        if (deletedCount > 0) {
-            logger.info("디스크 큐 정리 완료: {} 파일 삭제, {} 바이트 확보 (현재 사용량: {} → {} MB)", 
-                deletedCount, freedSize, 
-                currentSize / (1024 * 1024), (currentSize - freedSize) / (1024 * 1024));
+        // 정리 작업 결과 요약 로깅
+        if (deletedCount > 0 || failedCount > 0) {
+            double initialSizeMB = currentSize / (1024.0 * 1024);
+            double finalSizeMB = (currentSize - freedSize) / (1024.0 * 1024);
+            
+            logger.info("디스크 큐 정리 완료: {} 파일 삭제 ({} 실패), {} 바이트 확보 (현재 사용량: {:.2f} → {:.2f} MB)", 
+                deletedCount, failedCount, freedSize, 
+                initialSizeMB, finalSizeMB);
         }
     }
 
@@ -1025,16 +1348,40 @@ public class LogSenderService implements DisposableBean {
 
     /**
      * 손상된 로그 배치 파일을 처리합니다.
-     * 가능하면 오류 디렉토리로 이동하고, 불가능하면 삭제합니다.
+     * 먼저 복구를 시도하고, 실패하면 오류 디렉토리로 이동하거나 삭제합니다.
      *
      * @param file 손상된 파일 경로
      * @param errorDir 오류 파일 저장 디렉토리 (null일 수 있음)
      */
     private void handleCorruptedFile(Path file, Path errorDir) {
+        if (file == null || !Files.exists(file)) {
+            logger.warn("처리할 파일이 존재하지 않습니다.");
+            return;
+        }
+
         try {
+            // 파일 복구 시도
+            boolean recovered = attemptToRecoverFile(file);
+            
+            if (recovered) {
+                logger.info("손상된 로그 배치 파일 복구 성공: {}", file.getFileName());
+                return;
+            }
+            
+            // 복구 실패 시 오류 디렉토리로 이동 처리
             if (errorDir != null && Files.exists(errorDir) && Files.isDirectory(errorDir)) {
-                // 오류 디렉토리로 이동
-                Path targetPath = errorDir.resolve(file.getFileName());
+                // 오류 디렉토리에 이미 동일한 이름의 파일이 있는 경우, 타임스탬프를 추가하여 고유한 이름 생성
+                String fileName = file.getFileName().toString();
+                String baseName = fileName;
+                String extension = "";
+                
+                int dotIndex = fileName.lastIndexOf('.');
+                if (dotIndex > 0) {
+                    baseName = fileName.substring(0, dotIndex);
+                    extension = fileName.substring(dotIndex);
+                }
+                
+                Path targetPath = errorDir.resolve(baseName + "-" + System.currentTimeMillis() + extension);
                 Files.move(file, targetPath, StandardCopyOption.REPLACE_EXISTING);
                 logger.warn("손상된 로그 배치 파일을 오류 디렉토리로 이동: {} -> {}", 
                     file.getFileName(), targetPath);
@@ -1044,7 +1391,193 @@ public class LogSenderService implements DisposableBean {
                 logger.warn("손상된 로그 배치 파일 삭제: {}", file.getFileName());
             }
         } catch (IOException e) {
-            logger.error("손상된 로그 배치 파일 처리 중 오류 발생: {}", e.getMessage());
+            logger.error("손상된 로그 배치 파일 처리 중 오류 발생: {}", e.getMessage(), e);
+            try {
+                // 모든 방법이 실패했을 경우, 마지막 수단으로 강제 삭제 시도
+                Files.deleteIfExists(file);
+                logger.warn("손상된 파일 강제 삭제 시도: {}", file.getFileName());
+            } catch (IOException ex) {
+                logger.error("손상된 파일 강제 삭제 실패. 파일 시스템 오류 가능성 있음: {}", ex.getMessage());
+            }
+        }
+    }
+    
+    /**
+     * 손상된 로그 배치 파일의 복구를 시도합니다.
+     * JSON 배열 구조 및 중첩 레벨을 확인하여 더 정교한 복구를 수행합니다.
+     * 
+     * @param file 복구할 파일
+     * @return 복구 성공 여부
+     */
+    private boolean attemptToRecoverFile(Path file) {
+        try {
+            String content = Files.readString(file, StandardCharsets.UTF_8);
+            
+            // 파일이 비어있는 경우
+            if (content == null || content.trim().isEmpty()) {
+                logger.warn("빈 로그 파일 발견. 삭제합니다: {}", file.getFileName());
+                Files.delete(file);
+                return true;
+            }
+            
+            // 내용 트림
+            content = content.trim();
+            
+            // 구조 결함 확인을 위한 변수들
+            boolean needsRecovery = false;
+            boolean hasJsonObjects = false;
+            boolean isJsonArray = content.startsWith("[") && content.endsWith("]");
+            
+            // 기본 구조 검증
+            if (!isJsonArray) {
+                needsRecovery = true;
+                
+                // JSON 객체 존재 확인 ({로 시작하고 }로 끝나는 패턴)
+                hasJsonObjects = content.contains("{") && content.contains("}");
+                
+                // 시작 대괄호 확인
+                if (!content.startsWith("[")) {
+                    content = "[" + content;
+                }
+                
+                // 끝 대괄호 확인
+                if (!content.endsWith("]")) {
+                    content = content + "]";
+                }
+            } else {
+                // JSON 배열 구조이지만 내부 유효성 검증
+                int braceCount = 0;
+                int bracketCount = 0;
+                boolean inQuote = false;
+                boolean escaped = false;
+                
+                for (int i = 0; i < content.length(); i++) {
+                    char c = content.charAt(i);
+                    
+                    if (escaped) {
+                        escaped = false;
+                        continue;
+                    }
+                    
+                    if (c == '\\') {
+                        escaped = true;
+                        continue;
+                    }
+                    
+                    if (c == '"' && !escaped) {
+                        inQuote = !inQuote;
+                        continue;
+                    }
+                    
+                    if (!inQuote) {
+                        if (c == '{') {
+                            braceCount++;
+                            hasJsonObjects = true;
+                        } else if (c == '}') {
+                            braceCount--;
+                            if (braceCount < 0) {
+                                needsRecovery = true; // 중첩 레벨 불균형
+                            }
+                        } else if (c == '[') {
+                            bracketCount++;
+                        } else if (c == ']') {
+                            bracketCount--;
+                            if (bracketCount < 0) {
+                                needsRecovery = true; // 중첩 레벨 불균형
+                            }
+                        }
+                    }
+                }
+                
+                // 배열 내에 JSON 객체가 없는 경우
+                if (!hasJsonObjects) {
+                    needsRecovery = true;
+                }
+                
+                // 중첩 레벨이 불균형한 경우
+                if (braceCount != 0 || bracketCount != 0) {
+                    needsRecovery = true;
+                }
+            }
+            
+            // 구조적 문제가 있고 복구가 필요하지만, JSON 객체가 존재하지 않는 경우
+            if (needsRecovery && !hasJsonObjects) {
+                logger.warn("파일에 유효한 JSON 객체가 없어 복구가 불가능합니다: {}", file.getFileName());
+                return false;
+            }
+            
+            // 필요한 경우에만 복구 시도
+            if (needsRecovery) {
+                // 복구 시도: JSON 배열 내에서 개별 JSON 객체 추출 후 재구성
+                StringBuilder recoveredContent = new StringBuilder("[");
+                boolean firstObject = true;
+                
+                // 가장 간단한 복구 방법: {} 패턴 검색 (훨씬 정교한 파싱이 필요할 수 있음)
+                int start = 0;
+                while (true) {
+                    int openBrace = content.indexOf('{', start);
+                    if (openBrace == -1) break;
+                    
+                    // 중첩 레벨을 추적하여 매칭되는 닫는 중괄호 찾기
+                    int nestedLevel = 1;
+                    int closeBrace = -1;
+                    
+                    for (int i = openBrace + 1; i < content.length(); i++) {
+                        char c = content.charAt(i);
+                        if (c == '{') {
+                            nestedLevel++;
+                        } else if (c == '}') {
+                            nestedLevel--;
+                            if (nestedLevel == 0) {
+                                closeBrace = i;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // 매칭되는 닫는 중괄호를 찾지 못한 경우
+                    if (closeBrace == -1) break;
+                    
+                    // 유효한 JSON 객체 추출
+                    String jsonObject = content.substring(openBrace, closeBrace + 1);
+                    
+                    // 배열에 추가
+                    if (!firstObject) {
+                        recoveredContent.append(",");
+                    }
+                    recoveredContent.append(jsonObject);
+                    firstObject = false;
+                    
+                    // 다음 시작 위치 설정
+                    start = closeBrace + 1;
+                }
+                
+                recoveredContent.append("]");
+                
+                // 최종 복구 결과가 원본과 동일하다면 실제로 복구된 것이 없음
+                if (recoveredContent.toString().equals(content)) {
+                    logger.info("파일은 이미 유효한 형식입니다: {}", file.getFileName());
+                    return true;
+                }
+                
+                // 적어도 하나의 JSON 객체를 찾은 경우에만 복구 진행
+                if (recoveredContent.length() > 2) { // "[]"보다 길어야 함
+                    // 복구된 내용으로 파일 다시 쓰기
+                    Files.writeString(file, recoveredContent.toString(), StandardCharsets.UTF_8);
+                    logger.info("로그 배치 파일 복구 완료: {} (복구된 객체 수: {}개)", 
+                            file.getFileName(), recoveredContent.toString().split(",").length);
+                    return true;
+                } else {
+                    logger.warn("복구 가능한 JSON 객체를 찾지 못했습니다: {}", file.getFileName());
+                    return false;
+                }
+            }
+            
+            // 이미 올바른 형식이면 복구 필요 없음
+            return true;
+        } catch (Exception e) {
+            logger.warn("파일 복구 시도 실패: {} - {}", file.getFileName(), e.getMessage());
+            return false;
         }
     }
 
@@ -1059,19 +1592,40 @@ public class LogSenderService implements DisposableBean {
      */
     @Override
     public void destroy() throws Exception {
-        logger.info("Shutting down LogSenderService...");
-        active.set(false); // 새로운 작업 중단 플래그 설정
+        logger.info("LogSenderService 종료 중...");
+        
+        try {
+            // 활성 상태를 false로 설정하여 더 이상의 로그 추가를 방지
+            active.set(false);
+            
+            // MBean 등록 해제
+            if (metrics != null) {
+                try {
+                    MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+                    ObjectName name = new ObjectName("com.cholog.logger:type=LogSenderMetrics");
+                    if (mbs.isRegistered(name)) {
+                        mbs.unregisterMBean(name);
+                        logger.info("JMX에서 LogSenderMetrics 등록 해제 완료");
+                    }
+                } catch (Exception e) {
+                    logger.warn("JMX에서 LogSenderMetrics 등록 해제 실패: {}", e.getMessage());
+                }
+            }
+            
+            // 큐에 남아있는 로그 처리 시도
+            processBatchFromQueue();
+            
+            // 스케줄러 종료
+            shutdownExecutorService(scheduler, "로그 스케줄러");
+            
+            // HTTP 클라이언트 종료
+            closeHttpClient();
 
-        // 스케줄러 종료 시도
-        shutdownExecutorService(scheduler, "Scheduler");
-
-        // 메모리 큐에 남은 로그 마지막으로 처리 시도
-        logger.info("Processing remaining logs in memory queue before final shutdown...");
-        processBatchFromQueue(); // 마지막 배치 처리
-
-        // HTTP 클라이언트 종료
-        closeHttpClient();
-        logger.info("LogSenderService shutdown complete.");
+            logger.info("LogSenderService 종료 완료.");
+        } catch (Exception e) {
+            logger.error("LogSenderService 종료 중 오류 발생: {}", e.getMessage(), e);
+            throw e;
+        }
     }
 
     /**
@@ -1186,18 +1740,116 @@ public class LogSenderService implements DisposableBean {
      * 이 메소드는 생성자에서 properties.isExposeMetricsViaJmx()가 true일 때 호출됩니다.
      */
     private void registerJmxMetrics() {
+        if (metrics != null) {
+            logger.debug("메트릭 객체가 이미 등록되어 있습니다.");
+            return;
+        }
+        
+        MBeanServer mbs = null;
+        ObjectName name = null;
+        
         try {
-            MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
-            ObjectName name = new ObjectName("com.cholog.logger:type=LogSenderMetrics");
+            mbs = ManagementFactory.getPlatformMBeanServer();
+            name = new ObjectName("com.cholog.logger:type=LogSenderMetrics");
             
-            // 여기에 JMX 메트릭 등록 로직을 구현하세요
-            // 이 구현은 현재 로그 메시지만 출력하는 간단한 구현입니다
-            logger.info("JMX metrics registration is enabled but not fully implemented in this version.");
+            // 이미 등록된 경우 먼저 등록 해제
+            if (mbs.isRegistered(name)) {
+                try {
+                    mbs.unregisterMBean(name);
+                    logger.info("이전에 등록된 메트릭 객체를 해제했습니다: {}", name);
+                } catch (Exception e) {
+                    logger.warn("이전 메트릭 객체 등록 해제 실패: {}", e.getMessage());
+                    // 계속 진행, 등록 재시도
+                }
+            }
         } catch (Exception e) {
-            logger.warn("Failed to register JMX metrics", e);
+            logger.warn("JMX 서버 액세스 실패: {}", e.getMessage());
+            return;
+        }
+        
+        // 등록 시도 전에 안전 확인
+        if (mbs == null || name == null) {
+            logger.warn("JMX 서버 또는 객체 이름이 null입니다. 메트릭을 등록할 수 없습니다.");
+            return;
+        }
+        
+        try {
+            // 메트릭 객체 생성 (객체 생성 오류 분리)
+            metrics = new LogSenderMetrics(logQueue, isServerAvailable, diskQueueDir);
+        } catch (Exception e) {
+            logger.error("메트릭 객체 생성 실패: {}", e.getMessage(), e);
+            metrics = null;
+            return;
+        }
+        
+        // 최대 3회 등록 시도
+        int maxRegistrationAttempts = 3;
+        boolean registered = false;
+        Exception lastException = null;
+        
+        for (int attempt = 1; attempt <= maxRegistrationAttempts; attempt++) {
+            try {
+                mbs.registerMBean(metrics, name);
+                registered = true;
+                logger.info("LogSenderMetrics가 JMX에 등록되었습니다. 이름: {}", name);
+                break;
+            } catch (Exception e) {
+                lastException = e;
+                logger.warn("JMX 등록 시도 {}/{} 실패: {}", attempt, maxRegistrationAttempts, e.getMessage());
+                
+                if (attempt < maxRegistrationAttempts) {
+                    try {
+                        // 재시도 전 잠시 대기
+                        Thread.sleep(100);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (!registered) {
+            logger.error("모든 JMX 등록 시도 실패. 메트릭 수집은 계속하지만 JMX를 통한 모니터링은 사용할 수 없습니다.", lastException);
+        }
+        
+        // JMX 등록 여부와 관계없이 메트릭 스케줄링 설정
+        if (metrics != null && properties.isMetricsEnabled()) {
+            // 실패하더라도 내부 메트릭은 유지
+            try {
+                scheduler.scheduleAtFixedRate(
+                    this::updateMetrics,
+                    properties.getMetricsCollectionInterval(),
+                    properties.getMetricsCollectionInterval(),
+                    TimeUnit.MILLISECONDS
+                );
+                logger.info("메트릭 수집이 {}ms 간격으로 활성화되었습니다.", properties.getMetricsCollectionInterval());
+            } catch (Exception e) {
+                logger.warn("메트릭 수집 스케줄링 실패: {}", e.getMessage());
+            }
         }
     }
     
+    /**
+     * 메트릭을 주기적으로 업데이트합니다.
+     * 이 메서드는 properties.isMetricsEnabled()가 true일 때 정기적으로 호출됩니다.
+     */
+    private void updateMetrics() {
+        try {
+            // 현재 메트릭을 로깅하여 모니터링에 활용
+            if (metrics != null) {
+                // 디스크 메트릭 업데이트
+                metrics.updateDiskMetrics();
+                
+                if (logger.isDebugEnabled()) {
+                    logger.debug("현재 메트릭: {}", metrics);
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("메트릭 업데이트 중 오류 발생: {}", e.getMessage());
+        }
+    }
+
     /**
      * 데이터를 GZIP으로 압축합니다.
      * 
@@ -1293,29 +1945,12 @@ public class LogSenderService implements DisposableBean {
         post.setHeader("Accept", "application/json");
         
         // API 키 설정이 있으면 요청 헤더에 추가
-        if (properties.getApiKey() != null && !properties.getApiKey().isEmpty()) {
-            post.setHeader("X-API-Key", properties.getApiKey());
-            post.setHeader("X-Service-Name", properties.getServiceName());
-            post.setHeader("X-Environment", properties.getEnvironment());
-            logger.debug("API Key 헤더가 요청에 추가되었습니다.");
-        }
+        addApiKeyHeaders(post);
 
-        // 압축 활성화 여부에 따라 다르게 처리
+        // 요청 엔티티 생성 및 설정
+        post.setEntity(createRequestEntity(jsonBatchArray));
         if (properties.isCompressLogs()) {
-            // 압축 처리 로직
-            byte[] originalData = jsonBatchArray.getBytes(StandardCharsets.UTF_8);
-            byte[] compressedJson = compressData(originalData);
-            
-            // 압축된 데이터로 엔티티 생성
-            ByteArrayEntity entity = new ByteArrayEntity(compressedJson);
-            entity.setContentType("application/json");
-            post.setEntity(entity);
             post.setHeader("Content-Encoding", "gzip");
-        } else {
-            // 압축 없이 일반 텍스트로 전송
-            StringEntity entity = new StringEntity(jsonBatchArray, StandardCharsets.UTF_8);
-            entity.setContentType("application/json");
-            post.setEntity(entity);
         }
 
         // 타임아웃 설정
@@ -1327,7 +1962,6 @@ public class LogSenderService implements DisposableBean {
         
         // 최대 재시도 횟수만큼 시도
         int maxRetries = properties.getMaxRetries();
-        Exception lastException = null;
         
         for (int retry = 1; retry <= maxRetries; retry++) {
             try (CloseableHttpResponse response = httpClient.execute(post)) {
@@ -1338,6 +1972,7 @@ public class LogSenderService implements DisposableBean {
                     if (!isServerAvailable.getAndSet(true)) {
                         logger.info("서버 연결이 복구되었습니다: {}", properties.getUrl());
                     }
+                    resetBackoffDelay();
                     return true;
                 } else {
                     if (retry == maxRetries) {
@@ -1352,8 +1987,6 @@ public class LogSenderService implements DisposableBean {
                     }
                 }
             } catch (Exception e) {
-                lastException = e;
-                
                 // 마지막 시도만 로그 출력
                 if (retry == maxRetries) {
                     logConnectionError("디스크 배치 전송 실패", e, retry, maxRetries);
@@ -1369,10 +2002,9 @@ public class LogSenderService implements DisposableBean {
                 // 재시도 전 지연
                 if (retry < maxRetries) {
                     try {
-                        long delayMs = properties.isUseExponentialBackoff() ? 
-                                Math.min(properties.getInitialBackoffDelay() * (1L << (retry - 1)), properties.getMaxBackoffDelay()) :
-                                properties.getRetryDelay();
+                        long delayMs = calculateBackoffDelay(retry);
                         Thread.sleep(delayMs);
+                        updateBackoffDelay();
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         break;

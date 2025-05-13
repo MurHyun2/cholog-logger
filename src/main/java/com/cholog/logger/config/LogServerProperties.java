@@ -232,26 +232,6 @@ public class LogServerProperties {
      */
     private long httpClientPoolEvictIdleConnectionsAfter = 30L;
 
-    // --- 로그 압축 관련 설정 (v1.6.3 추가) ---
-    
-    /**
-     * 로그 데이터 압축 사용 여부입니다.
-     * 활성화하면 로그 데이터가 GZIP으로 압축되어 전송됩니다.
-     * 대량의 로그 전송 시 네트워크 대역폭 사용량을 줄일 수 있습니다.
-     * 
-     * 기본값: false
-     */
-    private boolean compressionEnabled = false;
-    
-    /**
-     * 압축을 적용할 최소 로그 배치 크기(바이트)입니다.
-     * 이 크기보다 작은 로그 배치는 압축하지 않습니다.
-     * 작은 데이터는 압축 시 오버헤드가 더 클 수 있습니다.
-     * 
-     * 기본값: 1024 (1KB)
-     */
-    private int compressionThreshold = 1024;
-    
     // --- 상태 지표 관련 설정 (v1.6.3 추가) ---
     
     /**
@@ -280,9 +260,9 @@ public class LogServerProperties {
 
     /**
      * 로그 압축 활성화 여부입니다.
-     * 활성화된 경우, 로그 데이터는 GZIP으로 압축되어 전송됩니다.
-     * 이 설정을 활성화하면 네트워크 대역폭을 절약할 수 있지만, 
-     * 서버 측에서 decompress_request => true 옵션 설정이 필요합니다.
+     * 활성화하면 로그를 gzip으로 압축하여 전송하여 대역폭을 절약합니다.
+     * 
+     * 기본값: false
      */
     private boolean compressLogs = false;
 
@@ -729,38 +709,6 @@ public class LogServerProperties {
     }
 
     /**
-     * 로그 압축 사용 여부를 반환합니다.
-     * @return 압축 사용 시 {@code true}, 아니면 {@code false}
-     */
-    public boolean isCompressionEnabled() {
-        return compressionEnabled;
-    }
-
-    /**
-     * 로그 압축 사용 여부를 설정합니다.
-     * @param compressionEnabled 압축 사용 시 {@code true}, 아니면 {@code false}
-     */
-    public void setCompressionEnabled(boolean compressionEnabled) {
-        this.compressionEnabled = compressionEnabled;
-    }
-
-    /**
-     * 압축을 적용할 최소 로그 배치 크기(바이트)를 반환합니다.
-     * @return 압축 적용 최소 크기(바이트)
-     */
-    public int getCompressionThreshold() {
-        return compressionThreshold;
-    }
-
-    /**
-     * 압축을 적용할 최소 로그 배치 크기(바이트)를 설정합니다.
-     * @param compressionThreshold 압축 적용 최소 크기(바이트)
-     */
-    public void setCompressionThreshold(int compressionThreshold) {
-        this.compressionThreshold = compressionThreshold;
-    }
-
-    /**
      * 로깅 상태 지표 수집 활성화 여부를 반환합니다.
      * @return 지표 수집 활성화 시 {@code true}, 아니면 {@code false}
      */
@@ -860,16 +808,16 @@ public class LogServerProperties {
     }
 
     /**
-     * 로그 압축 기능 활성화 여부를 반환합니다.
-     * @return 압축 기능이 활성화된 경우 {@code true}
+     * 로그 압축 활성화 여부를 반환합니다.
+     * @return 압축 활성화 시 {@code true}, 아니면 {@code false}
      */
     public boolean isCompressLogs() {
         return compressLogs;
     }
 
     /**
-     * 로그 압축 기능 활성화 여부를 설정합니다.
-     * @param compressLogs 압축 기능 활성화 여부
+     * 로그 압축 활성화 여부를 설정합니다.
+     * @param compressLogs 압축 활성화 시 {@code true}, 아니면 {@code false}
      */
     public void setCompressLogs(boolean compressLogs) {
         this.compressLogs = compressLogs;

@@ -13,7 +13,7 @@ plugins {
 }
 
 group = 'com.github.MurHyun2'
-version = 'v1.0.0'
+version = 'v1.0.1'
 
 // Java 버전 설정
 java {

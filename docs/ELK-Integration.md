@@ -31,4 +31,4 @@ output {
 - `cholog-*` 인덱스 패턴을 추가해 로그를 검색/시각화할 수 있습니다.
 
 ## 참고
-- 로그 압축(`compression-enabled: true`)을 사용할 경우 Logstash 입력에 `decompress_request => true` 옵션이 필요합니다. 
+- 로그 압축(`compress-logs: true`)을 사용할 경우 Logstash 입력에 `decompress_request => true` 옵션이 필요합니다. 

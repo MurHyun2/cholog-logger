@@ -18,7 +18,7 @@ Spring Boot의 `FilterRegistrationBean`을 사용해 필터 순서를 직접 지
 
 ## 로그 레벨/배치/압축 등 고급 설정
 
-- `log-level`, `batch-size`, `compression-enabled` 등 다양한 옵션을 조정해 최적화할 수 있습니다.
+- `log-level`, `batch-size`, `compress-logs` 등 다양한 옵션을 조정해 최적화할 수 있습니다.
 - 자세한 옵션은 [Configuration](./Configuration.md) 참고
 
 ## 커스텀 로그 서버 연동
