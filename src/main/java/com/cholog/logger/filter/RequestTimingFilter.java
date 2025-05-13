@@ -46,7 +46,7 @@ import java.util.UUID;
  *
  * @version 1.8.6
  * @see CentralLogAppender (MDC 키 상수 공유)
- * @see com.cholog.logger.config.LogAutoConfiguration#requestTimingFilter()
+ * @see com.cholog.logger.config.LogAutoConfiguration
  * @see MDC
  */
 @Order(Ordered.HIGHEST_PRECEDENCE) // 다른 필터보다 먼저 실행되어 전체 요청 시간을 감싸도록 순서 지정
