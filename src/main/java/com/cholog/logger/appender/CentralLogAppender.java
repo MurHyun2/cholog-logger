@@ -36,7 +36,7 @@ import java.util.Objects;
  * - 중앙 서버로의 비동기 전송을 위한 큐 관리
  *
  * @author eddy1219
- * @version 1.0.3
+ * @version 1.8.6
  * @see com.cholog.logger.service.LogSenderService
  * @see ch.qos.logback.core.AppenderBase
  */

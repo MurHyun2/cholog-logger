@@ -1,19 +1,19 @@
 # 설정 옵션 (Configuration)
 
-**cholog-logger v1.0.3** 기준 전체 설정 옵션 안내입니다.
+**cholog-logger v1.0.2** 기준 전체 설정 옵션 안내입니다.
 
 ---
 
 ## 1. 필수 설정
 
-아래 4가지는 반드시 지정해야 합니다.
+아래 3가지는 반드시 지정해야 합니다.
 
-| 옵션명 | 설명 | 예시 |
-|--------|------|------|
-| **url** | 로그를 전송할 중앙 서버 URL | `http://your-log-server.com/api/logs` |
-| **api-key** | 서비스 식별용 API 키 | `your-api-key` |
+| 옵션명              | 설명 | 예시 |
+|------------------|------|------|
+| **url**          | 로그를 전송할 중앙 서버 URL | `http://your-log-server.com/api/logs` |
+| **api-key**      | 서비스 식별용 API 키 | `your-api-key` |
 | **service-name** | 서비스 논리 이름 | `my-awesome-service` |
-| **environment** | 실행 환경 | `production` |
+
 
 > **예시**
 > ```yaml
@@ -22,7 +22,6 @@
 >     url: http://your-log-server.com/api/logs
 >     api-key: your-api-key
 >     service-name: my-awesome-service
->     environment: production
 > ```
 
 ---
@@ -31,6 +30,7 @@
 
 | 옵션명 | 설명 | 기본값 | 예시 |
 |--------|------|--------|------|
+| **environment**  | 실행 환경 | `development` | `production` |
 | **log-level** | 전송할 최소 로그 레벨<br/>(TRACE, DEBUG, INFO, WARN, ERROR) | INFO | INFO |
 | **batch-size** | 한 번에 전송할 로그 최대 개수 | 100 | 100 |
 | **batch-flush-interval** | 로그 모으는 최대 시간(ms) | 1000 | 1000 |

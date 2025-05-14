@@ -71,7 +71,7 @@ import java.util.zip.GZIPOutputStream;
  * 모든 동작은 {@link LogServerProperties}에 정의된 속성 값을 기반으로 설정됩니다.
  *
  * @author eddy1219
- * @version 1.0.3
+ * @version 1.8.6
  * @see com.cholog.logger.appender.CentralLogAppender
  * @see com.cholog.logger.config.LogServerProperties
  * @see org.springframework.beans.factory.DisposableBean

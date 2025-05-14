@@ -8,17 +8,31 @@ cholog-logger는 Spring Boot 애플리케이션을 위한 중앙 집중형 로�
 
 ### Gradle
 ```gradle
+
+repositories {
+    mavenCentral()
+    maven { url 'https://jitpack.io' }
+}
+
 dependencies {
-    implementation 'com.github.MurHyun2:cholog-logger:v1.0.3'
+    implementation 'com.github.MurHyun2:cholog-logger:v1.0.2'
 }
 ```
 
 ### Maven
 ```xml
+
+<repositories>
+    <repository>
+        <id>jitpack.io</id>
+        <url>https://jitpack.io</url>
+    </repository>
+</repositories>
+
 <dependency>
-  <groupId>com.github.MurHyun2</groupId>
-  <artifactId>cholog-logger</artifactId>
-  <version>v1.0.3</version>
+    <groupId>com.github.MurHyun2</groupId>
+    <artifactId>cholog-logger</artifactId>
+    <version>v1.0.2</version>
 </dependency>
 ```
 
@@ -34,7 +48,6 @@ cholog:
     url: http://your-log-server.com/api/logs      # 중앙 로그 서버 URL (필수)
     api-key: your-api-key                         # 서비스 식별용 API 키 (필수)
     service-name: my-awesome-service              # 서비스 논리 이름 (필수)
-    environment: production                       # 실행 환경 (예: production, development)
 ```
 
 ---
@@ -44,6 +57,7 @@ cholog:
 ```yaml
 cholog:
   logger:
+    environment: production       # 실행 환경 (예: production, development)
     log-level: INFO
     batch-size: 100
     disk-queue-enabled: true

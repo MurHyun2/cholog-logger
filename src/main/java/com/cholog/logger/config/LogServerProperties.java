@@ -29,7 +29,7 @@ import java.util.List;
  * - CORS 설정 (v1.8.6 추가)
  * 
  * @author eddy1219
- * @version 1.0.3
+ * @version 1.8.6
  * @see com.cholog.logger.service.LogSenderService
  * @see com.cholog.logger.appender.CentralLogAppender
  */

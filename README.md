@@ -21,10 +21,12 @@
 - Spring Boot 자동 설정(AutoConfiguration)
 - 디스크 큐, JMX 상태 모니터링 등 고급 기능
 
-## 최근 업데이트 (v1.0.3)
+## 최근 업데이트 (v1.0.2)
 
-- 의존성 업데이트 (Spring Boot 3.2.3, Apache HttpClient 4.5.14)
-- 내부 안정성 및 호환성 개선
+- 민감 파라미터 필터링 강화 - 요청 파라미터에 대한 자동 마스킹 개선
+- 내부 필터링 로직 통합 - `RequestTimingFilter`에서도 민감 정보 필터링 적용
+- 사용자 설정 마스킹 문자열(`sensitiveValueReplacement`) 지원 확대
+- `password`, `ssn`, `token` 등의 민감 파라미터 자동 마스킹 처리 개선
 
 자세한 내용은 [CHANGELOG](CHANGELOG.md)를 참조하세요.
 
@@ -69,7 +71,7 @@ cholog:
   logger:
     url: http://your-log-server.com/api/logs      # 중앙 로그 서버 URL (필수)
     api-key: your-api-key                         # 서비스 식별용 API 키 (필수)
-    service-name: my-awesome-service              # 서비스 논리 이름 (필수)
+    service-name: my-awesome-service              # 서비스 논리 이름 (권장)
 ```
 
 ## 간단한 사용 예제

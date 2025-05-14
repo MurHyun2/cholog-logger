@@ -7,13 +7,13 @@ plugins {
     // Spring Boot 애플리케이션 개발 및 의존성 관리를 위한 플러그인
     // 참고: 라이브러리 프로젝트이지만, Spring Boot 자동 설정(AutoConfiguration) 및
     // 의존성 관리를 위해 사용합니다.
-    id 'org.springframework.boot' version '3.2.3' // Spring Boot 버전 명시 (최신 안정 버전 또는 프로젝트 요구사항에 맞게)
+    id 'org.springframework.boot' version '3.4.3' // Spring Boot 버전 명시 (최신 안정 버전 또는 프로젝트 요구사항에 맞게)
     // Spring Boot의 의존성 관리(BOM - Bill of Materials)를 적용하기 위한 플러그인
     id 'io.spring.dependency-management' version '1.1.5' // 의존성 관리 플러그인 버전
 }
 
 group = 'com.github.MurHyun2'
-version = 'v1.0.3'
+version = 'v1.0.2'
 
 // Java 버전 설정
 java {
