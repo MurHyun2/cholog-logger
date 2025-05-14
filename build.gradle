@@ -34,7 +34,7 @@ dependencies {
 
     // --- HTTP 클라이언트 ---
     // LogSenderService에서 로그 전송 시 HTTP(S) 통신을 위해 사용
-    implementation 'org.apache.httpcomponents:httpclient:4.5.15'
+    implementation 'org.apache.httpcomponents:httpclient:4.5.14'
 
     // --- 로깅 프레임워크 ---
     // Logback 구현체 (CentralLogAppender가 의존)

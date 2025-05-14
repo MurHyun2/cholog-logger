@@ -23,7 +23,7 @@
 
 ## 최근 업데이트 (v1.0.3)
 
-- 의존성 업데이트 (Spring Boot 3.2.3, Apache HttpClient 4.5.15)
+- 의존성 업데이트 (Spring Boot 3.2.3, Apache HttpClient 4.5.14)
 - 내부 안정성 및 호환성 개선
 
 자세한 내용은 [CHANGELOG](CHANGELOG.md)를 참조하세요.
