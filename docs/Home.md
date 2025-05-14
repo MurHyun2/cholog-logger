@@ -1,6 +1,6 @@
 # cholog-logger Wiki
 
-> 최신 버전: **v1.0.0**
+> 최신 버전: **v1.0.3**
 
 Spring Boot 애플리케이션을 위한 중앙 집중형 로깅 SDK입니다.
 

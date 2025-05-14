@@ -29,7 +29,7 @@ import java.util.List;
  * - CORS 설정 (v1.8.6 추가)
  * 
  * @author eddy1219
- * @version 1.8.6
+ * @version 1.0.3
  * @see com.cholog.logger.service.LogSenderService
  * @see com.cholog.logger.appender.CentralLogAppender
  */
@@ -50,8 +50,7 @@ public class LogServerProperties {
     /**
      * 서버 식별을 위한 API 키입니다.
      * 이 키를 통해 로그 서버에서 서버별로 로그를 구분할 수 있습니다.
-     * 로그의 serverId 필드로 저장됩니다.
-     * 
+     *
      * 예시: server1-key
      */
     private String apiKey;

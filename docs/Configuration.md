@@ -1,6 +1,6 @@
 # 설정 옵션 (Configuration)
 
-**cholog-logger v1.0.2** 기준 전체 설정 옵션 안내입니다.
+**cholog-logger v1.0.3** 기준 전체 설정 옵션 안내입니다.
 
 ---
 

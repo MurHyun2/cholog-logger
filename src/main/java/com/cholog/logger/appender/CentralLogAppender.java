@@ -36,7 +36,7 @@ import java.util.Objects;
  * - 중앙 서버로의 비동기 전송을 위한 큐 관리
  *
  * @author eddy1219
- * @version 1.8.6
+ * @version 1.0.3
  * @see com.cholog.logger.service.LogSenderService
  * @see ch.qos.logback.core.AppenderBase
  */
@@ -292,10 +292,10 @@ public class CentralLogAppender extends AppenderBase<ILoggingEvent> {
             logData.put("ipAddress", this.ipAddress);
             logData.put("serverPort", this.serverPort);
 
-            // API 키를 serverId 필드에 추가
+            // API 키를 apiKey 필드에 추가
             String apiKey = properties.getApiKey();
             if (apiKey != null && !apiKey.trim().isEmpty()) {
-                logData.put("serverId", apiKey);
+                logData.put("apiKey", apiKey);
             }
 
             // 7. 시스템 성능 메트릭 수집 (CPU, Memory, Threads) - 요청 시간은 나중에 처리

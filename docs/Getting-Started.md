@@ -9,16 +9,16 @@ cholog-logger는 Spring Boot 애플리케이션을 위한 중앙 집중형 로�
 ### Gradle
 ```gradle
 dependencies {
-    implementation 'com.ssafy.lab.eddy1219:cholog-logger:v1.8.6'
+    implementation 'com.github.MurHyun2:cholog-logger:v1.0.3'
 }
 ```
 
 ### Maven
 ```xml
 <dependency>
-  <groupId>com.ssafy.lab.eddy1219</groupId>
+  <groupId>com.github.MurHyun2</groupId>
   <artifactId>cholog-logger</artifactId>
-  <version>v1.8.6</version>
+  <version>v1.0.3</version>
 </dependency>
 ```
 
