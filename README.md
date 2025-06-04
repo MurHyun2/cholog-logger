@@ -101,7 +101,7 @@ public class Example {
 ## 기여 및 문의
 
 - 이슈/PR 환영: [Issues](https://github.com/MurHyun2/cholog-logger/issues)
-- Author: [Daehyun Lee (MurHyun2)](https://github.com/MurHyun2)
+- Author: [Daehyun Lee(MurHyun2)](https://github.com/MurHyun2)
 - Email: eddy152264@gmail.com
 
 ## 라이선스
