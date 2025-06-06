@@ -4,8 +4,9 @@
 <h1 align="middle">cholog-logger</h1>
 
 <h3 align="middle">귀찮은 로깅 시스템, 직접 구현하지 마세요!</h3>
+<img src="https://github.com/user-attachments/assets/4ff0550b-cd18-4d15-8163-42bf8f282d34" alt="cholog" align="right" height="100" />
 
-<br/>
+<br/><br/>
 
 ## 소개
 
